@@ -1,0 +1,135 @@
+@import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
+
+:root {
+  --bg-primary: #07090e;
+  --bg-surface: rgba(15, 23, 42, 0.75);
+  --bg-surface-border: rgba(56, 189, 248, 0.2);
+  --color-team-a: #38bdf8;
+  --color-team-b: #f43f5e;
+  --color-accent: #10b981;
+  --color-text: #f1f5f9;
+  --color-text-dim: #94a3b8;
+  --color-danger: #ef4444;
+  --font-display: 'Rajdhani', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+html, body, #root {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background-color: var(--bg-primary);
+  color: var(--color-text);
+  font-family: var(--font-display);
+}
+
+/* Glassmorphism tactical card */
+.tactical-card {
+  background: var(--bg-surface);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--bg-surface-border);
+  border-radius: 8px;
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.45);
+}
+
+.tactical-card-interactive {
+  background: rgba(15, 23, 42, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.tactical-card-interactive:hover {
+  background: rgba(30, 41, 59, 0.85);
+  border-color: rgba(56, 189, 248, 0.5);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 20px rgba(56, 189, 248, 0.15);
+}
+
+/* Custom buttons */
+.btn-tactical {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-display);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 10px 20px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(30, 41, 59, 0.9);
+  color: #fff;
+  cursor: pointer;
+  transition: all 0.15s ease-out;
+}
+
+.btn-tactical:hover {
+  background: rgba(51, 65, 85, 1);
+  border-color: rgba(56, 189, 248, 0.6);
+  box-shadow: 0 0 15px rgba(56, 189, 248, 0.3);
+}
+
+.btn-primary-blue {
+  background: linear-gradient(135deg, #0284c7, #0369a1);
+  border-color: #38bdf8;
+}
+
+.btn-primary-blue:hover {
+  background: linear-gradient(135deg, #0369a1, #0284c7);
+  box-shadow: 0 0 20px rgba(56, 189, 248, 0.5);
+}
+
+.btn-primary-crimson {
+  background: linear-gradient(135deg, #e11d48, #be123c);
+  border-color: #fb7185;
+}
+
+.btn-primary-crimson:hover {
+  background: linear-gradient(135deg, #be123c, #e11d48);
+  box-shadow: 0 0 20px rgba(244, 63, 94, 0.5);
+}
+
+/* Progress bars */
+.bar-track {
+  background: rgba(15, 23, 42, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.bar-fill-hp {
+  height: 100%;
+  background: linear-gradient(90deg, #10b981, #059669);
+  transition: width 0.15s ease-out, background-color 0.2s;
+}
+
+.bar-fill-hp.low {
+  background: linear-gradient(90deg, #ef4444, #b91c1c);
+  box-shadow: 0 0 10px rgba(239, 68, 68, 0.6);
+}
+
+/* Killfeed badges */
+.kill-badge {
+  animation: slideInRight 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes slideInRight {
+  from {
+    opacity: 0;
+    transform: translateX(40px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}

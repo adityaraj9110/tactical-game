@@ -1,0 +1,563 @@
+---
+title: "Duo Arena — 2v2 Tactical Shooter (React) — Full Build Plan"
+description: "Plan for building, hosting and launching a 2v2 browser shooter with best-of-N rounds, tactical arenas and sound."
+---
+
+# Duo Arena: 2v2 Tactical Shooter in React
+
+A browser game where **2 teams of 2 players** fight in a small tactical arena. Teams choose a **best-of-N** format (1, 3, 5 or 7 rounds). First team to win the majority of rounds wins the match. Players can **invite a friend with a link**, or join a quick-match queue.
+
+> **Golden rule:** keep version 1 small. A _finished, fun, simple_ game on Reddit beats a big unfinished one. Build the core loop first (move, shoot, win a round), then add polish.
+
+---
+
+## 1. Game Design
+
+### 1.1 Core loop
+
+1. Player opens link, picks a name, creates or joins a lobby.
+2. Lobby fills to 4 players (2 per team). Host picks **best of 1 / 3 / 5 / 7**.
+3. Round starts after a 3-second countdown. Everyone has **one life per round**.
+4. Round ends when one team is fully eliminated, or the timer ends (see sudden death).
+5. Scoreboard shows round result. Next round starts.
+6. First team to reach the **required wins** takes the match.
+
+```
+winsNeeded = Math.floor(bestOf / 2) + 1
+best of 5 -> 3 wins needed
+```
+
+### 1.2 Camera and perspective: choose 2D top-down first
+
+| Option                                         | Pros                                                                                                                   | Cons                                                          |
+| ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| **2D top-down (recommended)**                  | Fast to build, runs on any laptop/phone, easy asset creation, easy netcode, great for tactics (you see the map layout) | Less "wow" in screenshots                                     |
+| 3D first-person (Three.js / React Three Fiber) | Looks impressive                                                                                                       | 5-10x more work, heavy assets, harder netcode, hard on mobile |
+| 2.5D / isometric                               | Middle ground                                                                                                          | Art-heavy, depth sorting issues                               |
+
+Top-down also makes the "think of tactics" part clearer, because players can read cover, lanes and flanks.
+
+### 1.3 Controls
+
+- **Desktop:** WASD move, mouse aim, left click shoot, R reload, Shift to walk quietly (makes less footstep sound), 1/2 weapon swap, Tab scoreboard.
+- **Mobile (later):** left virtual joystick to move, right joystick to aim and auto-fire, reload button.
+
+### 1.4 Weapons (each player has a gun in hand)
+
+Keep 4 weapons. Each has a clear role so players make choices.
+
+| Weapon                | Fire       | Damage        | Range        | Notes                        |
+| --------------------- | ---------- | ------------- | ------------ | ---------------------------- |
+| Pistol (always spare) | Semi       | 18            | Medium       | Infinite reserve ammo        |
+| SMG                   | Auto       | 12            | Short-medium | High fire rate, spread grows |
+| Assault Rifle         | Auto/burst | 20            | Medium-long  | Recoil pattern               |
+| Shotgun               | Pump       | 8 x 8 pellets | Short        | Deadly in tight corridors    |
+| Sniper (optional v2)  | Bolt       | 90            | Long         | Slow move speed, loud        |
+
+Player HP: 100. Movement speed: same for all, slower while shooting with heavy weapons.
+
+**Loadout choice:** At round start (10 second buy phase) each player picks one primary weapon. Optional: a team cannot pick the same primary twice, which forces tactics and variety.
+
+### 1.5 Tactical features (these make it "thinkable")
+
+- **Sound as information:** footsteps, reload, gunshots are heard through the map with volume based on distance. Players can hunt by ear.
+- **Line of sight / fog:** each player only sees what is in their view cone and unblocked by walls. This is the single biggest tactical feature. (Use a visibility polygon / raycasting.)
+- **Ping marker:** press Q to ping a spot for your teammate (teammate communication without voice chat).
+- **Destructible or one-way cover:** crates that break after N hits.
+- **Smoke / flash grenade (v2):** one utility per round.
+- **Shrinking zone / sudden death:** after 75 seconds, the safe zone shrinks so rounds never stall.
+
+### 1.6 Arena design
+
+Build maps **symmetrical** so neither team has an advantage. Use a **3-lane layout**:
+
+```
+ [Spawn A]
+   |  Left lane (long, sniping)
+   |  Middle (crates, cover, control point)
+   |  Right lane (tight, shotgun-friendly)
+ [Spawn B]
+```
+
+Design checklist for every map:
+
+- Size around **1600 x 1200** game units (round of 60-90 seconds).
+- 2 spawn areas, mirrored.
+- 3 routes to the enemy, **plus 1-2 flank shortcuts** (doors, gaps).
+- A **mid control area** that gives vision on both lanes but is exposed.
+- Mix of **long sightlines** (rifle/sniper) and **tight corners** (shotgun/SMG).
+- No spot that is safe from all angles (no camping paradise).
+- Cover objects spaced so a player can always run from cover to cover.
+- Playtest with real people and watch where they die and where they hide. Adjust.
+
+**Maps for launch:** 2 maps are enough. Example names: _Warehouse_ (tight, indoor) and _Courtyard_ (open, mid cover). Add one new map every update to give people a reason to return.
+
+---
+
+## 2. Tech Stack
+
+| Layer                              | Tool                                              | Why                                                                                                       |
+| ---------------------------------- | ------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| UI (menus, lobby, HUD, scoreboard) | **React + Vite + TypeScript**                     | You asked for React; perfect for UI                                                                       |
+| Game rendering                     | **Phaser 3** (or PixiJS) inside a React component | React is slow for 60fps game objects. Use a real game engine for the arena and React for the UI around it |
+| Multiplayer server                 | **Colyseus** (Node.js)                            | Built for real-time rooms, matchmaking, room codes, authoritative server, state sync                      |
+| Sound                              | **Howler.js**                                     | Simple, reliable, spatial audio support                                                                   |
+| Map editor                         | **Tiled**                                         | Free, exports JSON that Phaser loads directly                                                             |
+| State in UI                        | **Zustand**                                       | Tiny store to bridge game events to React HUD                                                             |
+| Styling                            | Tailwind CSS                                      | Quick, good-looking menus                                                                                 |
+
+> **Important:** do NOT render bullets, players and walls as React DOM elements. Render them in the Phaser canvas. Use React only for everything _around_ the canvas.
+
+### 2.1 Project structure
+
+```
+duo-arena/
+  client/                 (React + Vite)
+    src/
+      ui/                 Lobby, MainMenu, HUD, Scoreboard, MatchResult
+      game/
+        GameCanvas.tsx    Mounts Phaser inside React
+        scenes/           BootScene, ArenaScene
+        entities/         Player, Bullet, Pickup
+        net/              colyseus client, input sender, interpolation
+        audio/            SoundManager.ts
+      store/              Zustand stores
+      assets/             sprites, audio, maps
+  server/                 (Node + Colyseus)
+    rooms/ArenaRoom.ts
+    schema/               Player, Bullet, MatchState
+    logic/                MatchStateMachine, weapons, collisions
+  shared/                 constants & weapon stats used by both
+```
+
+### 2.2 React + Phaser bridge
+
+```tsx
+// GameCanvas.tsx
+import { useEffect, useRef } from "react";
+import Phaser from "phaser";
+import { ArenaScene } from "./scenes/ArenaScene";
+
+export default function GameCanvas({ room }: { room: any }) {
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const game = new Phaser.Game({
+      type: Phaser.AUTO,
+      parent: ref.current!,
+      width: 1280,
+      height: 720,
+      scale: { mode: Phaser.Scale.FIT },
+      physics: { default: "arcade" },
+      scene: [new ArenaScene(room)],
+    });
+    return () => game.destroy(true);
+  }, [room]);
+
+  return <div ref={ref} className="w-full h-full" />;
+}
+```
+
+---
+
+## 3. Multiplayer Architecture
+
+### 3.1 Rule: the **server is the boss** (authoritative)
+
+Clients only send **inputs** (keys, aim angle, shoot). The server moves players, spawns bullets, checks hits and decides who is dead. This stops most cheating and keeps everyone in sync.
+
+```
+Client  --input(move, aim, fire)-->  Server (20-30 ticks/sec)
+Client  <--state snapshot----------  Server
+```
+
+### 3.2 Making it feel smooth
+
+- **Tick rate:** server 30 Hz, clients render at 60 fps.
+- **Interpolation:** render _other_ players about 100ms in the past, blending between two snapshots.
+- **Client-side prediction:** move _your own_ player instantly, then correct if the server disagrees.
+- **Hit detection:** for v1 use **server-side projectiles** or hitscan with small lag compensation (rewind enemy positions by the shooter's ping, max 150ms).
+- **Fixed input sequence numbers** so the server can acknowledge and the client can replay unacknowledged inputs.
+
+### 3.3 Room, invite and teams
+
+- **Create room** -> server returns a 5-letter code and a share link: `https://yourgame.com/?room=KXQ4Z`
+- **Invite a player:** copy link, share by WhatsApp/Discord/Reddit DM. The link auto-joins the lobby.
+- **Teams:** 2 slots on Team A, 2 on Team B. Players click a slot to take it. Host can start when all 4 slots are filled (or fill with bots in v2).
+- **Quick match:** queue players, group 4 into a room.
+- **Rematch button** at the end keeps the same players together (huge for retention).
+- **Disconnect handling:** keep the slot for 30 seconds so a player can reconnect (Colyseus supports `allowReconnection`).
+
+### 3.4 Match state machine (server)
+
+```ts
+type Phase = "LOBBY" | "BUY" | "COUNTDOWN" | "LIVE" | "ROUND_END" | "MATCH_END";
+
+class MatchState extends Schema {
+  @type("string") phase: Phase = "LOBBY";
+  @type("uint8") bestOf = 5; // chosen in lobby: 1,3,5,7
+  @type("uint8") round = 1;
+  @type("uint8") scoreA = 0;
+  @type("uint8") scoreB = 0;
+  @type("number") timeLeft = 90;
+}
+
+function winsNeeded(bestOf: number) {
+  return Math.floor(bestOf / 2) + 1;
+}
+
+function endRound(state: MatchState, winner: "A" | "B") {
+  if (winner === "A") state.scoreA++;
+  else state.scoreB++;
+  const need = winsNeeded(state.bestOf);
+  if (state.scoreA >= need || state.scoreB >= need) {
+    state.phase = "MATCH_END";
+  } else {
+    state.round++;
+    state.phase = "ROUND_END"; // then BUY -> COUNTDOWN -> LIVE
+  }
+}
+```
+
+### 3.5 Anti-cheat basics (cheap but effective)
+
+- Server validates speed, fire rate, ammo, and position.
+- Rate limit messages per client.
+- Never send enemy positions that the player cannot see (send only what is in their line of sight). This stops wallhacks.
+- Sanitise player names (profanity filter).
+
+---
+
+## 4. Assets: What You Need and Where to Get Them
+
+### 4.1 Asset list for version 1
+
+**Graphics (2D top-down)**
+
+- Player sprite: 4 directions or one rotating sprite + arms/gun layer (2 team colors: blue and red)
+- 4 weapon sprites + muzzle flash + shell casing
+- Bullet and impact sprites, blood/spark particles
+- Tileset: floor, walls, crates, doors, barrels
+- UI: crosshair, health bar, ammo icons, kill icons, buttons, logo
+- Map backgrounds / minimap
+
+**Audio** (see section 5): shots, reloads, footsteps, hits, UI clicks, round start/end stingers, music loop.
+
+### 4.2 Where to generate or get assets
+
+| Need                            | Source                                                           | Notes                                                                                                                                    |
+| ------------------------------- | ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| **Free ready art (best start)** | **Kenney.nl** (Top-down Shooter pack, Tiny Town, UI packs)       | CC0 license: free for commercial use, no credit needed                                                                                   |
+| More free art                   | OpenGameArt.org, itch.io free assets                             | **Check the license of each pack**; some need credit                                                                                     |
+| Custom pixel art                | **Aseprite** (paid, cheap), **Piskel** or **LibreSprite** (free) | Draw your own for a unique look                                                                                                          |
+| Map building                    | **Tiled Map Editor** (free)                                      | Export JSON for Phaser                                                                                                                   |
+| AI-generated concepts           | Midjourney, DALL-E, Scenario.gg, Leonardo                        | Good for logo/key art/concept. For sprites, results are inconsistent; always clean up in an editor. Check each tool's commercial license |
+| Icons and UI                    | Game-icons.net, Kenney UI pack                                   | Credit where required                                                                                                                    |
+| Fonts                           | Google Fonts (e.g. Press Start 2P, Orbitron, Rajdhani)           | Free                                                                                                                                     |
+| Sprite packing                  | **TexturePacker** (or free-tex-packer)                           | Combine sprites into atlases for fast loading                                                                                            |
+| Particles/VFX                   | Phaser built-in particle emitter                                 | No external assets needed                                                                                                                |
+
+> **Tip:** For launch, use Kenney art + your own color palette + a custom logo. Consistent style matters more than quality. Using one single pack for everything makes the game look professional.
+
+### 4.3 Where to store assets in the project
+
+```
+client/public/assets/
+  sprites/    atlas.png + atlas.json
+  maps/       warehouse.json, courtyard.json  (from Tiled)
+  audio/      sfx/*.ogg  music/*.ogg  (also .mp3 fallback)
+  ui/
+```
+
+Optimise: export audio as **.ogg + .mp3**, compress PNGs (TinyPNG / `oxipng`), keep the whole first load **under 10 MB**. Fast loading = more Reddit players actually playing.
+
+---
+
+## 5. Sound Design (required)
+
+Sound is not decoration here, it's gameplay: players locate enemies by it.
+
+### 5.1 Sound list
+
+**Weapons:** pistol, SMG, rifle, shotgun shot; reload start/finish; empty click; bullet impact (wall, crate, body); hit marker "tick".
+**Movement:** footsteps (2-3 variations; quieter when walking), crate break, door.
+**Match:** countdown beeps, round start horn, round win/lose stinger, match win/lose jingle, low-HP heartbeat.
+**UI:** button click, hover, join/leave lobby, ping marker.
+**Music:** one calm menu loop, one tense in-match loop (low volume so SFX are heard).
+
+### 5.2 Where to get sounds
+
+| Source                                           | Use                                                           |
+| ------------------------------------------------ | ------------------------------------------------------------- |
+| **jsfxr / sfxr.me**                              | Generate retro SFX in the browser, free, fully yours          |
+| **Freesound.org**                                | Large library; check license (CC0 vs CC-BY)                   |
+| **Kenney Audio packs**                           | CC0                                                           |
+| **Pixabay Sound / Mixkit**                       | Free, usable commercially under their license                 |
+| **ElevenLabs Sound Effects / Stable Audio**      | AI-generated SFX/music from text prompts; check license terms |
+| **Audacity**                                     | Edit, trim, normalise, add reverb                             |
+| **Bosca Ceoil / BeepBox / Suno / Pixabay Music** | Music loops                                                   |
+
+### 5.3 Sound manager with distance-based volume
+
+```ts
+// audio/SoundManager.ts
+import { Howl, Howler } from "howler";
+
+const sfx = {
+  rifle: new Howl({
+    src: ["/assets/audio/sfx/rifle.ogg", "/assets/audio/sfx/rifle.mp3"],
+  }),
+  step: new Howl({ src: ["/assets/audio/sfx/step.ogg"], volume: 0.4 }),
+  hit: new Howl({ src: ["/assets/audio/sfx/hit.ogg"] }),
+};
+
+export function playAt(
+  name: keyof typeof sfx,
+  srcX: number,
+  srcY: number,
+  listenerX: number,
+  listenerY: number,
+) {
+  const dist = Math.hypot(srcX - listenerX, srcY - listenerY);
+  const maxHear = 900;
+  if (dist > maxHear) return;
+  const vol = 1 - dist / maxHear;
+  const pan = Math.max(-1, Math.min(1, (srcX - listenerX) / maxHear));
+  const id = sfx[name].play();
+  sfx[name].volume(vol, id);
+  sfx[name].stereo(pan, id);
+}
+
+export const setMasterVolume = (v: number) => Howler.volume(v);
+```
+
+**Browser rule:** audio cannot start until the user clicks something. Put a "Click to Play" screen first, and resume the audio context there. Add **mute and volume sliders** in settings and remember them in `localStorage`.
+
+---
+
+## 6. Where to Deploy
+
+You need **two parts**: the static client and the real-time server.
+
+### 6.1 Option A (recommended for your own domain): Client + Colyseus server
+
+| Part                  | Host                                    | Cost                  | Notes                                                                                    |
+| --------------------- | --------------------------------------- | --------------------- | ---------------------------------------------------------------------------------------- |
+| React client (static) | **Cloudflare Pages**, Vercel or Netlify | Free                  | Global CDN, fast loading                                                                 |
+| Colyseus game server  | **Fly.io**, **Railway** or **Render**   | ~$0-10/month to start | Needs WebSocket support and a long-running Node process. Pick a region near most players |
+| Domain                | Namecheap / Cloudflare                  | ~$10/year             | Needed for HTTPS and a clean link                                                        |
+| Analytics             | Plausible, PostHog or Google Analytics  | Free tier             | Track plays, matches, drop-off                                                           |
+| Error tracking        | Sentry                                  | Free tier             | Catch crashes                                                                            |
+
+> **Note:** Vercel/Netlify _serverless functions_ cannot hold WebSocket game rooms. Host the game server on Fly/Railway/Render (or a small VPS), not on serverless.
+
+**Scaling idea:** one small Node server can handle many 4-player rooms (each room is light). Start with one instance; add more regions if you get traction. Colyseus can scale with Redis presence later.
+
+### 6.2 Option B: Run natively inside Reddit (Devvit)
+
+Reddit has its own developer platform called **Devvit** that lets you build apps/games that play **inside a Reddit post** (including web apps built with React). This can give you built-in distribution to Reddit users and easy login via their Reddit identity.
+
+Things to check carefully before choosing it (verify in the current docs at **developers.reddit.com**, since this platform changes quickly):
+
+- Does it support the **real-time latency** a shooter needs? Devvit's realtime messaging is designed for lighter interactions; a fast shooter may feel laggy.
+- Size limits for assets, and server/runtime limits.
+- Rules for **payments, ads and external servers**.
+- Possible **Reddit developer funds / game contests** that reward Devvit games.
+
+**My recommendation:**
+
+1. Build the shooter with **Option A** (full control, best feel).
+2. If you want Reddit-native distribution, make a **small Devvit companion** (for example daily leaderboard, "find a teammate" post, or an async mode) that links players into the real game.
+
+### 6.3 Pre-launch checklist
+
+- [ ] HTTPS everywhere (WebSockets over `wss://`)
+- [ ] Game works on Chrome, Firefox, Safari, Edge
+- [ ] Load-tested with 20+ simulated rooms (use Colyseus load-test tool)
+- [ ] Reconnect works after refresh
+- [ ] Mute button and volume settings
+- [ ] Privacy policy + simple terms page
+- [ ] Open Graph image + title so the link looks great when shared on Reddit/Discord/X
+
+---
+
+## 7. Development Roadmap
+
+| Phase                             | Time (solo, part-time) | Goal                                                     | Done when                                  |
+| --------------------------------- | ---------------------- | -------------------------------------------------------- | ------------------------------------------ |
+| **0. Setup**                      | 2-3 days               | Vite + React + Phaser + Colyseus running locally         | Two browser tabs see each other as squares |
+| **1. Core movement and shooting** | 1 week                 | Authoritative movement, aim, bullets, HP, death          | Two players can kill each other            |
+| **2. Map and cover**              | 1 week                 | Load Tiled map, wall collision, line-of-sight / fog      | Walls block bullets and vision             |
+| **3. Lobby, teams, invite link**  | 1 week                 | Room codes, 2v2 slots, host picks best-of-N              | 4 friends can join via link                |
+| **4. Match flow**                 | 1 week                 | Round state machine, scoreboard, win conditions, rematch | Best-of-5 finishes correctly               |
+| **5. Weapons and loadouts**       | 1 week                 | 4 weapons, ammo, reload, recoil/spread                   | Each weapon feels different                |
+| **6. Sound**                      | 3-4 days               | SFX, spatial audio, music, mute                          | Can locate enemies by sound                |
+| **7. Art and UI polish**          | 1 week                 | Final sprites, particles, screen shake, menus            | Looks good in a screenshot and GIF         |
+| **8. Netcode polish**             | 1 week                 | Interpolation, prediction, lag compensation              | Playable at 100-150 ms ping                |
+| **9. Closed beta**                | 1-2 weeks              | 20-50 testers, fix bugs, balance                         | Win rates between teams close to 50%       |
+| **10. Launch**                    | 1 week                 | Domain, analytics, Reddit posts                          | Public                                     |
+
+Total: about **8-10 weeks** part-time for a solid v1.
+
+---
+
+## 8. Improvements and Features After Launch
+
+**Retention**
+
+- Rematch and "play again with same team" in one click
+- Match history, win streaks, simple **ELO ranking** and a leaderboard
+- Daily challenge ("win 3 rounds with the shotgun")
+- Cosmetics: skins, trails, crosshairs (unlocked by playing, not paying)
+- Player profile with Reddit username login
+
+**Gameplay**
+
+- New maps monthly, map vote at lobby
+- Bots to fill empty slots (so a solo player always gets a game)
+- Utilities: smoke, flash, mines, shield
+- Game modes: Search & Destroy (plant a bomb), Capture the Flag, Deathmatch warmup
+- Spectate mode for eliminated players (watching is fun and gets friends engaged)
+- Replay of the last round
+
+**Social and growth**
+
+- Share-card at the end: "We won 3-1 in Duo Arena" with a generated image
+- Friend list and party invite
+- Text quick-chat ("Push left!", "Hold!", "Nice!") plus ping system
+- Tournament mode with a bracket (great for Reddit communities)
+
+**Quality**
+
+- Mobile controls
+- Accessibility: colorblind team colors, remappable keys
+- Performance: object pooling for bullets, texture atlases, limit particles on weak devices
+- Report/mute players; profanity filter
+
+---
+
+## 9. Launching on Reddit So It Goes Viral
+
+### 9.1 Before you post
+
+1. **A 10-20 second GIF** of the best moment (a clutch flank, shotgun kill) is your most important marketing asset. Record with ScreenToGif or OBS.
+2. **Zero-friction entry:** no signup. Click link -> type name -> play. Every extra step loses half the players.
+3. **A single invite link** to challenge a friend (the game needs 4 players, so make joining easy).
+4. **Bots or a queue** so a visitor is never stuck alone in an empty lobby. This is critical. If someone arrives and nobody is online, they leave and never return.
+5. Run **scheduled "play sessions"** (for example "Saturday 8 PM IST / 3 PM UTC") so players are online at the same time.
+
+### 9.2 Where to post
+
+| Subreddit                                                 | Notes                                                                               |
+| --------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| r/WebGames                                                | Perfect fit for browser games                                                       |
+| r/playmygame                                              | Made for feedback on indie games                                                    |
+| r/IndieGaming                                             | Larger, wants good visuals/GIF                                                      |
+| r/gamedev (Feedback Friday / Screenshot Saturday threads) | Build-in-public audience                                                            |
+| r/reactjs, r/webdev, r/javascript                         | Post the _tech story_: "I built a multiplayer shooter in React + Phaser + Colyseus" |
+| r/IndieDev, r/INAT                                        | Dev community                                                                       |
+| r/WebGames daily threads, regional gaming subs            | Check rules                                                                         |
+| Game-genre subs (r/shootergames, r/FPS)                   | Only if rules allow promotion                                                       |
+
+**Read each subreddit's rules about self-promotion.** Many require a ratio of non-promotional participation or specific flairs. Break the rules and your post is removed or you are banned.
+
+### 9.3 Post template
+
+> **Title:** I made a 2v2 tactical shooter that runs in your browser: no download, no signup. Looking for a partner to play with!
+>
+> **Body:** short GIF + 3 lines on what makes it different (line of sight, sound-based tactics, best-of-N matches) + the link + "Drop a comment with your name and I'll jump in a match with you right now" + ask for feedback.
+
+**Tips**
+
+- Be present in the comments for the first 2-3 hours. Reply to everyone and _join their games_.
+- Post at peak hours for the target subreddit (usually US morning/evening).
+- Share the dev story (what you struggled with) because Reddit loves transparency.
+- Collect feedback and ship fixes quickly, then post "Update: you asked, I built it".
+- Start a **Discord server** and link it in the game. Reddit traffic is temporary; Discord keeps the community.
+
+### 9.4 Server capacity before you go viral
+
+A successful Reddit post can send thousands of visitors in an hour. Prepare:
+
+- Put a **max rooms cap** with a friendly queue message ("Servers busy, you're #12 in line").
+- Auto-scale or have a second server ready (Fly.io makes this easy).
+- Keep the static client on a CDN (it will never go down).
+- Watch metrics live during the launch.
+
+---
+
+## 10. Legal and Safety Notes
+
+- Keep a **list of every asset and its license** in `CREDITS.md` and show credits in the game.
+- Don't use copyrighted gun names/logos or sounds ripped from other games.
+- If you collect any data (names, IPs, analytics), add a short privacy policy.
+- If you add payments or ads later, review Reddit's and payment providers' rules first.
+- Moderate chat/names to keep it safe for a young audience.
+
+---
+
+## 11. Quick-Start Commands
+
+```bash
+# Client
+npm create vite@latest client -- --template react-ts
+cd client && npm i phaser colyseus.js howler zustand
+npm i -D tailwindcss
+
+# Server
+mkdir server && cd server
+npm init -y
+npm i colyseus @colyseus/schema @colyseus/ws-transport express
+npm i -D typescript tsx @types/node
+```
+
+Minimal Colyseus room:
+
+```ts
+import { Room, Client } from "colyseus";
+
+export class ArenaRoom extends Room<MatchState> {
+  maxClients = 4;
+
+  onCreate(options: { bestOf?: number }) {
+    this.setState(new MatchState());
+    this.state.bestOf = options.bestOf ?? 5;
+    this.setSimulationInterval((dt) => this.update(dt), 1000 / 30);
+    this.onMessage("input", (client, input) => {
+      /* validate, then store */
+    });
+  }
+
+  onJoin(client: Client, options: { name: string }) {
+    /* assign team A or B */
+  }
+
+  async onLeave(client: Client, consented: boolean) {
+    if (!consented) {
+      try {
+        await this.allowReconnection(client, 30);
+      } catch {
+        /* remove player */
+      }
+    }
+  }
+
+  update(dt: number) {
+    /* move players, bullets, hit checks, round timer */
+  }
+}
+```
+
+---
+
+## 12. Summary: Decisions to Make Now
+
+1. **2D top-down** with Phaser inside React. (Fast, tactical, works on most devices)
+2. **Colyseus** authoritative server on Fly.io/Railway, client on Cloudflare Pages.
+3. **Kenney CC0 art + Tiled maps**, sounds from jsfxr / Freesound / Kenney Audio, played with Howler.js using distance-based volume.
+4. **Best-of 1/3/5/7** chosen by host in lobby, first to the majority wins.
+5. **Invite by link + quick match + bots** so nobody waits alone.
+6. **Launch with a GIF** on r/WebGames, r/playmygame and dev subs, with scheduled play sessions and a Discord.
+7. Check **Devvit** (Reddit's platform) as an optional extra, not as the only home for a fast shooter.
+
+Start with Phase 0 and 1. When two browser tabs can shoot each other with correct server-side hits, you have the hard part done.
